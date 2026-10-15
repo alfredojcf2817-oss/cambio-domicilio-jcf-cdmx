@@ -179,7 +179,7 @@
 
     <script>
       // PEGA LA URL /exec DE LA IMPLEMENTACIÓN NUEVA DE APPS SCRIPT.
-      const API_URL = 'https://script.google.com/macros/s/AKfycbwRhCcV6JdxpNyNpKCmETeXAm-y47y2ziG1fbQku058fy1ua_UCUeiNzao1Qcg7ujm7/exec';
+      const API_URL = 'https://script.google.com/macros/s/AKfycbyDzaV5P0t4P-C4C0UZxLkSp9QdIvuJqbVW4psLJU6lp9jp6AN1_qHyFhZmr4rtiauS/exec';
       const pending = new Map();
       window.addEventListener('message', function(event) {
         // El mensaje proviene del iframe que carga Apps Script / googleusercontent.
