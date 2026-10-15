@@ -179,7 +179,8 @@
 
     <script>
       // PEGA LA URL /exec DE LA IMPLEMENTACIÓN NUEVA DE APPS SCRIPT.
-      const API_URL = 'https://script.google.com/macros/s/AKfycbyDzaV5P0t4P-C4C0UZxLkSp9QdIvuJqbVW4psLJU6lp9jp6AN1_qHyFhZmr4rtiauS/exec';
+      const FORM_TYPE = 'domicilio';
+      const API_URL = 'https://script.google.com/macros/s/AKfycby8KDmxJLPEPFRG9Z9Ccku-IqUMpKFNoN8oxpsfbLBKBn5tRfTX06sk4xBG-F_Xq1tx/exec';
       const pending = new Map();
       window.addEventListener('message', function(event) {
         // El mensaje proviene del iframe que carga Apps Script / googleusercontent.
@@ -204,7 +205,7 @@
           const form = document.createElement('form');
           form.method='POST'; form.action=API_URL; form.target=frame.name;
           form.style.display='none';
-          [['action',action],['requestId',requestId],['payload',JSON.stringify(payload)]].forEach(function(item){
+          [['action',action],['requestId',requestId],['payload',JSON.stringify(Object.assign({}, payload, {formType: FORM_TYPE}))]].forEach(function(item){
             const input=document.createElement('input');input.type='hidden';input.name=item[0];input.value=item[1];form.appendChild(input);
           });
           document.body.appendChild(form);
@@ -218,8 +219,10 @@
       document.getElementById('logo1').src = LOGO1_BASE64;
       document.getElementById('logo2').src = LOGO2_BASE64;
 
-      // Las preguntas se administran desde la pestaña Preguntas.
+      // Las preguntas se administran desde la pestaña correspondiente al formulario.
+      let currentQuestions = [];
       function renderQuestions(config) {
+        currentQuestions = config;
         var cont = document.getElementById('questions');
         cont.replaceChildren();
         config.forEach(function(q) {
@@ -230,7 +233,21 @@
           div.appendChild(label);
           var tipo = q.tipo;
           var input;
-          if (tipo === 'lista') {
+          if (tipo === 'archivo') {
+            input = document.createElement('input');
+            input.type = 'file'; input.name=q.id;
+            input.accept=(q.extensiones||[]).map(function(x){return '.'+x;}).join(',');
+            input.required=!!q.obligatoria;
+            input.dataset.maxMb=String(q.maxMB||5);
+            input.addEventListener('change',function(){
+              const f=input.files[0];if(!f)return;
+              const ext=f.name.split('.').pop().toLowerCase();
+              if(!(q.extensiones||[]).includes(ext)||f.size>(q.maxMB||5)*1024*1024){
+                alert('Archivo inválido para '+q.texto+'. Permitidos: '+q.extensiones.join(', ')+'. Máximo: '+q.maxMB+' MB.');input.value='';return;
+              }
+              previewFile(input, 'preview_'+q.id);
+            });
+          } else if (tipo === 'lista') {
             input = document.createElement('select');
             var inicio = document.createElement('option'); inicio.value=''; inicio.textContent='Selecciona una opción';
             input.appendChild(inicio);
@@ -253,6 +270,12 @@
           }
           if (tipo==='lista') {input.name=q.id;input.required=!!q.obligatoria;}
           div.appendChild(input);
+          if(tipo==='archivo') {
+            const info=document.createElement('small');
+            info.textContent='Formatos: '+q.extensiones.join(', ').toUpperCase()+' · Máximo '+q.maxMB+' MB · Un archivo';
+            div.appendChild(info);
+            const vista=document.createElement('div');vista.id='preview_'+q.id;div.appendChild(vista);
+          }
           if(q.ayuda && (tipo==='lista'||tipo==='multiple'||tipo==='casillas')) {
             var small=document.createElement('small');small.textContent=q.ayuda;div.appendChild(small);
           }
@@ -344,7 +367,7 @@
         var fd = new FormData(form);
         var answers = {};
         for (var pair of fd.entries()){
-          answers[pair[0]] = pair[1];
+          if (!(pair[1] instanceof File)) answers[pair[0]] = pair[1];
         }
 
         // Validar y recopilar correctamente los grupos de casillas.
@@ -373,11 +396,30 @@
             return false;
           }
         }
+        // Validar archivos dinámicos antes de bloquear la pantalla.
+        for (const q of currentQuestions) {
+          if (!q.activa || q.tipo!=='archivo') continue;
+          const el=document.querySelector('#questions input[name="'+q.id+'"]');
+          const f=el && el.files[0];
+          if(q.obligatoria&&!f){alert('Falta archivo obligatorio: '+q.texto);return false;}
+          if(f){
+            const ext=f.name.split('.').pop().toLowerCase();
+            if(!q.extensiones.includes(ext)||f.size>q.maxMB*1024*1024){
+              alert('Archivo inválido en '+q.texto+' (máximo '+q.maxMB+' MB).');return false;
+            }
+          }
+        }
         bloquear('PREPARANDO Y ENVIANDO INFORMACIÓN...');
         var filesToSend = [];
         try {
+          for (const q of currentQuestions) {
+            if(!q.activa||q.tipo!=='archivo')continue;
+            const el=document.querySelector('#questions input[name="'+q.id+'"]');
+            if(el && el.files[0]) campos.push([q.id,q.id]);
+          }
           for (const [id, campo] of campos) {
-            const file = document.getElementById(id).files[0];
+            const el=document.getElementById(id)||document.querySelector('#questions input[name="'+id+'"]');
+            const file = el.files[0];
             if (['comprobante','fotoExterior','fotoInterior'].includes(id)) {
               const ext = file.name.split('.').pop().toLowerCase();
               const permitido = id === 'comprobante' ? ['pdf','png','jpeg','jpg'] : ['png','jpeg','jpg'];
@@ -393,7 +435,7 @@
           return false;
         }
 
-        var payload = { key: currentKey, answers: answers, files: filesToSend };
+        var payload = { key: currentKey, answers: answers, files: filesToSend, formType: FORM_TYPE };
         document.getElementById('successMsg').textContent = 'Enviando...';
         api('submit',payload).then(function(res){
           desbloquear();
